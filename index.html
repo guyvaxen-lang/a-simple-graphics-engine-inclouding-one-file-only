@@ -1,0 +1,401 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vector Field Engine</title>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #03060c;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    #error {
+      position: fixed;
+      bottom: 12px;
+      left: 12px;
+      max-width: 90%;
+      color: #ff9ca8;
+      background: #251019;
+      padding: 12px;
+      font: 13px monospace;
+      white-space: pre-wrap;
+      display: none;
+    }
+  </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="error"></div>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from
+      "three/addons/controls/OrbitControls.js";
+
+    const errorBox = document.getElementById("error");
+
+    function showError(message) {
+      errorBox.style.display = "block";
+      errorBox.textContent = message;
+    }
+
+    window.addEventListener("error", event => {
+      showError(event.message);
+    });
+
+    window.addEventListener("unhandledrejection", event => {
+      showError(String(event.reason));
+    });
+
+    // Scene
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x03060c);
+    scene.fog = new THREE.FogExp2(0x03060c, 0.012);
+
+    // Camera
+    const camera = new THREE.PerspectiveCamera(
+      55,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      150
+    );
+
+    camera.position.set(0, 12, 24);
+
+    // Renderer
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      powerPreference: "high-performance"
+    });
+
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    document.body.appendChild(renderer.domElement);
+
+    // Mouse camera controls
+    const controls = new OrbitControls(
+      camera,
+      renderer.domElement
+    );
+
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.minDistance = 7;
+    controls.maxDistance = 55;
+    controls.target.set(0, 0, 0);
+
+    // Lighting
+    scene.add(new THREE.AmbientLight(0x7aaaff, 0.7));
+
+    const centerLight = new THREE.PointLight(
+      0x087cff,
+      80,
+      35
+    );
+
+    centerLight.position.set(0, 0, 0);
+    scene.add(centerLight);
+
+    // Subtle 3D grid
+    const grid = new THREE.GridHelper(
+      32,
+      32,
+      0x183568,
+      0x101a30
+    );
+
+    grid.position.y = -4;
+    grid.material.transparent = true;
+    grid.material.opacity = 0.35;
+
+    scene.add(grid);
+
+    // Vector field definition
+    function vectorField(x, y, z, time) {
+      const radiusSquared = x * x + z * z + 3;
+      const strength = 3.5 / Math.sqrt(radiusSquared);
+
+      return new THREE.Vector3(
+        -z * strength + 0.15 * x,
+        0.22 * Math.sin(x * 0.6 + time) +
+          0.12 * Math.cos(z * 0.6 - time),
+        x * strength + 0.15 * z
+      );
+    }
+
+    // Arrow geometry
+    const arrowGeometry = new THREE.ConeGeometry(
+      0.065,
+      0.24,
+      5
+    );
+
+    arrowGeometry.translate(0, 0.12, 0);
+
+    const arrowMaterial = new THREE.MeshBasicMaterial({
+      color: 0x1685ff
+    });
+
+    const arrowPositions = [];
+
+    for (let x = -8; x <= 8; x += 1.15) {
+      for (let y = -3; y <= 3; y += 1.1) {
+        for (let z = -8; z <= 8; z += 1.15) {
+          arrowPositions.push(
+            new THREE.Vector3(x, y, z)
+          );
+        }
+      }
+    }
+
+    const arrows = new THREE.InstancedMesh(
+      arrowGeometry,
+      arrowMaterial,
+      arrowPositions.length
+    );
+
+    arrows.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(arrows);
+
+    const helper = new THREE.Object3D();
+    const up = new THREE.Vector3(0, 1, 0);
+
+    // Streamline generation
+    const streamlineGroup = new THREE.Group();
+    scene.add(streamlineGroup);
+
+    const lineMaterials = [
+      new THREE.LineBasicMaterial({
+        color: 0x087cff,
+        transparent: true,
+        opacity: 0.48
+      }),
+      new THREE.LineBasicMaterial({
+        color: 0x812cff,
+        transparent: true,
+        opacity: 0.65
+      }),
+      new THREE.LineBasicMaterial({
+        color: 0x00cfff,
+        transparent: true,
+        opacity: 0.6
+      })
+    ];
+
+    for (let seed = 0; seed < 65; seed++) {
+      const angle = seed * 2.399963;
+      const radius = 0.7 + (seed % 12) * 0.55;
+
+      let position = new THREE.Vector3(
+        Math.cos(angle) * radius,
+        ((seed % 9) - 4) * 0.28,
+        Math.sin(angle) * radius
+      );
+
+      const points = [];
+
+      for (let step = 0; step < 240; step++) {
+        points.push(position.clone());
+
+        const direction = vectorField(
+          position.x,
+          position.y,
+          position.z,
+          0
+        ).normalize();
+
+        position = position.clone().addScaledVector(
+          direction,
+          0.09
+        );
+
+        if (position.length() > 19) break;
+      }
+
+      const geometry = new THREE.BufferGeometry()
+        .setFromPoints(points);
+
+      const line = new THREE.Line(
+        geometry,
+        lineMaterials[seed % lineMaterials.length]
+      );
+
+      streamlineGroup.add(line);
+    }
+
+    // Animated particles
+    const particleCount = 1200;
+
+    const particlePositions = new Float32Array(
+      particleCount * 3
+    );
+
+    const particleColors = new Float32Array(
+      particleCount * 3
+    );
+
+    const particleData = [];
+
+    for (let i = 0; i < particleCount; i++) {
+      const color = new THREE.Color().setHSL(
+        0.55 + Math.random() * 0.16,
+        1,
+        0.55
+      );
+
+      particleColors[i * 3] = color.r;
+      particleColors[i * 3 + 1] = color.g;
+      particleColors[i * 3 + 2] = color.b;
+
+      particleData.push({
+        angle: Math.random() * Math.PI * 2,
+        radius: 0.8 + Math.random() * 11,
+        height: (Math.random() - 0.5) * 7,
+        speed: 0.2 + Math.random() * 0.6,
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+
+    const particleGeometry = new THREE.BufferGeometry();
+
+    particleGeometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(particlePositions, 3)
+    );
+
+    particleGeometry.setAttribute(
+      "color",
+      new THREE.BufferAttribute(particleColors, 3)
+    );
+
+    const particleMaterial = new THREE.PointsMaterial({
+      size: 0.075,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+
+    const particles = new THREE.Points(
+      particleGeometry,
+      particleMaterial
+    );
+
+    scene.add(particles);
+
+    // Animation loop
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const time = clock.getElapsedTime();
+
+      // Update vector arrows
+      for (let i = 0; i < arrowPositions.length; i++) {
+        const p = arrowPositions[i];
+
+        const vector = vectorField(
+          p.x,
+          p.y,
+          p.z,
+          time
+        );
+
+        const magnitude = vector.length();
+
+        helper.position.copy(p);
+
+        helper.quaternion.setFromUnitVectors(
+          up,
+          vector.clone().normalize()
+        );
+
+        const scale = Math.min(
+          1.5,
+          0.45 + magnitude * 0.13
+        );
+
+        helper.scale.set(0.8, scale, 0.8);
+        helper.updateMatrix();
+
+        arrows.setMatrixAt(i, helper.matrix);
+      }
+
+      arrows.instanceMatrix.needsUpdate = true;
+
+      // Move particles through the vortex
+      for (let i = 0; i < particleCount; i++) {
+        const p = particleData[i];
+
+        const angle = p.angle + time * p.speed;
+        const radius = p.radius +
+          0.25 * Math.sin(time + p.phase);
+
+        particlePositions[i * 3] =
+          Math.cos(angle) * radius;
+
+        particlePositions[i * 3 + 1] =
+          p.height +
+          0.35 * Math.sin(angle * 1.7 + time + p.phase);
+
+        particlePositions[i * 3 + 2] =
+          Math.sin(angle) * radius;
+      }
+
+      particleGeometry.attributes.position.needsUpdate = true;
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    // Responsive canvas
+    window.addEventListener("resize", () => {
+      camera.aspect =
+        window.innerWidth / window.innerHeight;
+
+      camera.updateProjectionMatrix();
+
+      renderer.setSize(
+        window.innerWidth,
+        window.innerHeight
+      );
+
+      renderer.setPixelRatio(
+        Math.min(window.devicePixelRatio, 2)
+      );
+    });
+  </script>
+</body>
+</html>
