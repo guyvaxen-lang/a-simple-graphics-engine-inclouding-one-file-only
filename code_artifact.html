@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>vector field</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #111113;
+            cursor: crosshair;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="vectorCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('vectorCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let time = 0;
+
+        // Particle streamline setup for the dense stream layer
+        const NUM_PARTICLES = 3600;
+        const particles = [];
+        let mouseX = -9999;
+        let mouseY = -9999;
+        let isMouseDown = false;
+
+        class StreamParticle {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.x = (Math.random() - 0.5) * 8;
+                this.y = (Math.random() - 0.5) * 4.5;
+                this.life = Math.random() * 60 + 20;
+                this.maxLife = this.life;
+                this.prevX = this.x;
+                this.prevY = this.y;
+            }
+
+            update(getVector) {
+                this.prevX = this.x;
+                this.prevY = this.y;
+
+                const vec = getVector(this.x, this.y);
+                const speed = 0.022;
+                
+                this.x += vec.dx * speed;
+                this.y += vec.dy * speed;
+                this.life--;
+
+                if (this.life <= 0 || Math.abs(this.x) > 4.2 || Math.abs(this.y) > 2.4) {
+                    this.reset();
+                }
+            }
+        }
+
+        // Initialize particles
+        for (let i = 0; i < NUM_PARTICLES; i++) {
+            particles.push(new StreamParticle());
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+
+        // Mouse / Touch interactive listeners
+        window.addEventListener('mousemove', (e) => {
+            const scaleX = 4.0;
+            const scaleY = 2.25;
+            mouseX = ((e.clientX - canvas.width / 2) / (canvas.width / 2)) * scaleX;
+            mouseY = -((e.clientY - canvas.height / 2) / (canvas.height / 2)) * scaleY;
+        });
+
+        window.addEventListener('mouseleave', () => {
+            mouseX = -9999;
+            mouseY = -9999;
+        });
+
+        // Core Mathematical Vector Field Matching Image Exactly
+        function getVectorField(x, y) {
+            let dx, dy;
+
+            if (y > 0) {
+                // UPPER HALF: Wave columns with repeating vortices, arches & swirling flow
+                const kx = Math.PI * 2.2;
+                const ky = Math.PI * 1.4;
+
+                dx = Math.sin(x * kx + time * 0.1) * Math.cos(y * ky) + Math.cos(x * 1.5) * 0.4;
+                dy = Math.cos(x * kx * 0.9) * Math.sin(y * ky + time * 0.1) + Math.sin(y * 2.5) * 0.5 + 0.2;
+            } else {
+                // LOWER HALF: Downward vertical parallel flow
+                dx = Math.sin(x * 6.0 + time * 0.3) * 0.05;
+                dy = -1.35;
+            }
+
+            // Mouse Repulsion Effect
+            const mdx = x - mouseX;
+            const mdy = y - mouseY;
+            const distSq = mdx * mdx + mdy * mdy;
+            if (distSq < 0.6 && distSq > 0.001) {
+                const force = (0.6 - distSq) * 2.5;
+                dx += (mdx / Math.sqrt(distSq)) * force;
+                dy += (mdy / Math.sqrt(distSq)) * force;
+            }
+
+            return { dx, dy };
+        }
+
+        // Color Palette Calculator pixel-matched to the image
+        function getFieldColor(x, y, opacity = 1.0) {
+            if (y <= 0) {
+                // LOWER HALF: Deep violet / indigo / magenta purple lines
+                const band = Math.sin(x * 8.0);
+                const r = Math.floor(110 + 40 * band);
+                const g = Math.floor(15 + 20 * Math.cos(y * 5.0));
+                const b = Math.floor(180 + 70 * Math.sin(x * 3.0));
+                return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+            }
+
+            // UPPER HALF: Alternating Emerald Green and Neon Magenta/Pink vertical wave bands
+            const columnPattern = Math.sin(x * Math.PI * 2.2 + Math.cos(y * 1.8));
+
+            if (columnPattern > -0.1) {
+                // Emerald Green & Neon Teal
+                const r = Math.floor(15 + 25 * Math.abs(columnPattern));
+                const g = Math.floor(185 + 70 * Math.abs(columnPattern));
+                const b = Math.floor(110 + 60 * Math.sin(y * 6.0));
+                return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+            } else {
+                // Crimson / Neon Magenta / Pink
+                const r = Math.floor(225 + 30 * Math.abs(columnPattern));
+                const g = Math.floor(15 + 25 * Math.cos(x * 5.0));
+                const b = Math.floor(130 + 80 * Math.abs(columnPattern));
+                return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+            }
+        }
+
+        // Draw Coordinate Grid & Central Axes
+        function drawGridAndAxes() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+
+            const gridSpacingX = canvas.width / 24;
+            const gridSpacingY = canvas.height / 14;
+
+            // Subtle Grid Lines
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+            ctx.lineWidth = 1;
+
+            ctx.beginPath();
+            for (let x = centerX % gridSpacingX; x < canvas.width; x += gridSpacingX) {
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+            }
+            for (let y = centerY % gridSpacingY; y < canvas.height; y += gridSpacingY) {
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+            }
+            ctx.stroke();
+
+            // Glowing White Axes
+            ctx.save();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2.0;
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = 8;
+
+            ctx.beginPath();
+            // X-axis
+            ctx.moveTo(0, centerY);
+            ctx.lineTo(canvas.width, centerY);
+
+            // Y-axis
+            ctx.moveTo(centerX, 0);
+            ctx.lineTo(centerX, canvas.height);
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        // Draw Continuous Dense Streamlines
+        function drawStreamlines() {
+            const scaleX = 4.0;
+            const scaleY = 2.25;
+
+            for (let p of particles) {
+                if (p.prevX === undefined) continue;
+
+                const sx = canvas.width / 2 + (p.x / scaleX) * (canvas.width / 2);
+                const sy = canvas.height / 2 - (p.y / scaleY) * (canvas.height / 2);
+
+                const psx = canvas.width / 2 + (p.prevX / scaleX) * (canvas.width / 2);
+                const psy = canvas.height / 2 - (p.prevY / scaleY) * (canvas.height / 2);
+
+                const alpha = Math.sin((p.life / p.maxLife) * Math.PI) * 0.8;
+                ctx.strokeStyle = getFieldColor(p.x, p.y, alpha);
+                ctx.lineWidth = 1.25;
+
+                ctx.beginPath();
+                ctx.moveTo(psx, psy);
+                ctx.lineTo(sx, sy);
+                ctx.stroke();
+
+                p.update(getVectorField);
+            }
+        }
+
+        // Draw Uniform Grid Vector Arrows with Cyan Heads
+        function drawVectorArrows() {
+            const arrowCols = 52;
+            const arrowRows = 28;
+
+            const stepX = canvas.width / arrowCols;
+            const stepY = canvas.height / arrowRows;
+
+            const scaleX = 4.0;
+            const scaleY = 2.25;
+
+            for (let i = 0; i < arrowCols; i++) {
+                for (let j = 0; j < arrowRows; j++) {
+                    const screenX = (i + 0.5) * stepX;
+                    const screenY = (j + 0.5) * stepY;
+
+                    const worldX = ((screenX - canvas.width / 2) / (canvas.width / 2)) * scaleX;
+                    const worldY = -((screenY - canvas.height / 2) / (canvas.height / 2)) * scaleY;
+
+                    const field = getVectorField(worldX, worldY);
+                    
+                    const angle = Math.atan2(-field.dy, field.dx);
+                    const arrowLength = Math.min(stepX * 0.6, 11);
+
+                    const endX = screenX + Math.cos(angle) * arrowLength;
+                    const endY = screenY + Math.sin(angle) * arrowLength;
+
+                    // Light Cyan Arrow Body and Head
+                    ctx.strokeStyle = 'rgba(100, 225, 255, 0.4)';
+                    ctx.lineWidth = 0.9;
+
+                    // Shaft
+                    ctx.beginPath();
+                    ctx.moveTo(screenX, screenY);
+                    ctx.lineTo(endX, endY);
+                    ctx.stroke();
+
+                    // Pointer Head
+                    const headLen = 3.6;
+                    ctx.fillStyle = 'rgba(150, 245, 255, 0.85)';
+                    ctx.beginPath();
+                    ctx.moveTo(endX, endY);
+                    ctx.lineTo(
+                        endX - headLen * Math.cos(angle - Math.PI / 5.5),
+                        endY - headLen * Math.sin(angle - Math.PI / 5.5)
+                    );
+                    ctx.lineTo(
+                        endX - headLen * Math.cos(angle + Math.PI / 5.5),
+                        endY - headLen * Math.sin(angle + Math.PI / 5.5)
+                    );
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            }
+        }
+
+        function animate() {
+            time += 0.015;
+
+            ctx.fillStyle = '#111113';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            drawGridAndAxes();
+            drawStreamlines();
+            drawVectorArrows();
+
+            requestAnimationFrame(animate);
+        }
+
+        window.onload = () => {
+            resizeCanvas();
+            animate();
+        };
+    </script>
+</body>
+</html>
